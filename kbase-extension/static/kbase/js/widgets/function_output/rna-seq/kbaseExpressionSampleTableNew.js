@@ -10,8 +10,7 @@ define (
 		'kbaseHistogram',
 		'kbase-client-api',
 		'kbaseTable',
-		'jquery-dataTables',
-		'kbaseReportView'
+		'jquery-dataTables-bootstrap',
 	], function(
 		KBWidget,
 		bootstrap,
@@ -21,8 +20,7 @@ define (
 		kbaseHistogram,
 		kbase_client_api,
 		kbaseTable,
-		jquery_dataTables,
-		kbaseReportView
+		jquery_dataTables
 	) {
 
     'use strict';
@@ -98,12 +96,15 @@ define (
               );
 
               if (newDataset.tpm_expression_levels != undefined) {
-                this.data('container').addTab(
-                  {
-                    'tab' : 'TPM Histogram',
-                    'content' : this.data('tpmHistElem')
-                  }
-                )
+                if (!this.hasTPMTab) {
+                  this.data('container').addTab(
+                    {
+                      'tab' : 'TPM Histogram',
+                      'content' : this.data('tpmHistElem')
+                    }
+                  );
+                  this.hasTPMTab = true;
+                }
                 var tpm_min = Number.MAX_VALUE;
                 var tpm_max = Number.MIN_VALUE;
                 var tpmBarData = [];
@@ -139,23 +140,26 @@ define (
               var $dt = this.data('$dt');
               if ($dt == undefined) {
 
-                var aoColumns = [
+                var columns = [
                     { title : 'Feature ID'},
                     { title : 'Feature Value : log2(FPKM + 1)'},
                 ];
                 if (newDataset.tpm_expression_levels != undefined) {
                   this.data('tableElem').find('th').css('display', '');
-                  aoColumns.push({ title : 'Feature Value : log2(TPM + 1)'});
+                  columns.push({ title : 'Feature Value : log2(TPM + 1)'});
                 }
 
-                $dt = this.data('tableElem').dataTable({
-                    aoColumns : aoColumns
+                $dt = this.data('tableElem').DataTable({
+                    columns : columns
                 });
 
                 this.data('$dt', $dt);
               }
+              else {
+                $dt.clear();
+              }
 
-              $dt.fnAddData(rows);
+              $dt.rows.add(rows).draw();
               this.data('loader').hide();
               this.data('containerElem').show();
             }
@@ -196,16 +200,6 @@ define (
         init : function init(options) {
 
           this._super(options);
-
-          if (this.options.report_name != undefined) {
-
-            var $div = $.jqElem('div');
-            this.$elem.append($div);
-
-            $div.kbaseReportView( this.options);
-            return this;
-          }
-
 
 
             this._super(options);
@@ -254,10 +248,58 @@ define (
                         $self.loadExpression($self.options.output.sample_expression_ids[0]);
                       }
 
+                  })
+                  .fail(function(d) {
+
+                      $self.$elem.empty();
+                      $self.$elem
+                          .addClass('alert alert-danger')
+                          .html("Could not load object : " + d.error.message);
                   });
 
 
 
+                }
+                else if (thing.items) {
+                  $self.options.output = thing;
+                  thing.sample_expression_ids = [];
+
+                  var promises = [];
+                  $.each(
+                    $self.options.output.items,
+                    function (i,v) {
+                      thing.sample_expression_ids.push(v.ref);
+                      promises.push(
+                        ws.get_object_info([{ref : v.ref}])
+                      );
+                    }
+                  );
+
+                  $.when.apply($, promises).then(function () {
+
+                      var args = arguments;
+                      $self.options.output.sample_expression_names = [];
+                      $.each(
+                        arguments,
+                        function (i, v) {
+                          $self.options.output.sample_expression_names.push(v[0][1]);
+                        }
+                      );
+
+                      $self.appendUI($self.$elem);
+
+                      if ($self.options.output.sample_expression_ids.length) {
+                        $self.loadExpression($self.options.output.sample_expression_ids[0]);
+                      }
+
+                  })
+                  .fail(function(d) {
+
+                      $self.$elem.empty();
+                      $self.$elem
+                          .addClass('alert alert-danger')
+                          .html("Could not load object : " + d.error.message);
+                  });
                 }
                 else {
                   $self.appendUI($self.$elem);
@@ -330,7 +372,12 @@ define (
                             tab : 'FPKM Histogram',
                             content : $histElem
                         }
-                    ]
+                    ],
+                    deleteTabCallback : function(tabName) {
+                      if (tabName === 'TPM Histogram') {
+                        delete this.tpmTab;
+                      }
+                    }
                 }
             )
 
